@@ -12,8 +12,8 @@ window.__ModuleLoader__.load({
 
     const zh = {
       'menu.add': '添加到任务看板',
-      'menu.busy': '正在添加…',
-      'menu.failed': '添加失败（任务看板未就绪）',
+      'menu.added': '已添加到任务看板',
+      'menu.failed': '添加失败：任务看板未就绪',
       'badge.label': '会话',
       'badge.title': '打开关联的会话',
       'detail.title': '关联会话',
@@ -36,8 +36,8 @@ window.__ModuleLoader__.load({
 
     const en = {
       'menu.add': 'Add to task board',
-      'menu.busy': 'Adding…',
-      'menu.failed': 'Could not add (task board not ready)',
+      'menu.added': 'Added to the task board',
+      'menu.failed': 'Could not add: the task board is not ready',
       'badge.label': 'Session',
       'badge.title': 'Open the linked Session',
       'detail.title': 'Linked Session',
@@ -141,6 +141,38 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Resolve the board's browser-half face, loading it when this page has not
+     * opened the board yet: the board publishes that face only after its own
+     * browser half is activated, so the first action from a fresh page opens
+     * the board panel and waits for the service instead of failing.
+     * @param ctx - client context.
+     * @param timeoutMs - longest wait for the lazily loaded face.
+     * @returns the face, or undefined when the board is absent.
+     */
+    async function ensureBoardFace(ctx, timeoutMs = 3000) {
+      const current = boardOf(ctx);
+      if (current !== undefined && typeof current.dispatch === 'function') return current;
+      try {
+        service(ctx, 'layout')?.selectPanel?.(BOARD_PANEL);
+      } catch {
+        // A layout without the board panel still lets the face load below.
+      }
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => {
+          try {
+            window.setTimeout(resolve, 100);
+          } catch {
+            resolve();
+          }
+        });
+        const face = boardOf(ctx);
+        if (face !== undefined && typeof face.dispatch === 'function') return face;
+      }
+      return undefined;
+    }
+
+    /**
      * Dispatch one action to this plugin's Host half through the board's channel.
      * @param ctx - client context.
      * @param action - provider action name.
@@ -148,12 +180,22 @@ window.__ModuleLoader__.load({
      * @returns the routed action result.
      */
     async function dispatchAction(ctx, action, payload) {
-      const face = boardOf(ctx);
-      if (face === undefined || typeof face.dispatch !== 'function') {
+      const face = await ensureBoardFace(ctx);
+      if (face === undefined) {
+        console.warn('[task-board-session-link] the task board service is not available on this page');
         throw new Error('the task board is not available');
       }
-      const accepted = await face.dispatch({ extensionId: EXTENSION_ID, action, payload });
-      if (accepted === false) throw new Error('the task board refused the action');
+      let accepted;
+      try {
+        accepted = await face.dispatch({ extensionId: EXTENSION_ID, action, payload });
+      } catch (error) {
+        console.warn('[task-board-session-link] the board action threw:', error);
+        throw error;
+      }
+      if (accepted === false) {
+        console.warn('[task-board-session-link] the board refused the action:', action);
+        throw new Error('the task board refused the action');
+      }
       return accepted;
     }
 
@@ -239,81 +281,73 @@ window.__ModuleLoader__.load({
     };
 
     /**
-     * One Session row menu entry: put this Session on the board as a new card.
-     * @param props - Session row owner props plus the menu's open-state hook.
-     * @returns the menu item, or null when the board is not loaded.
+     * The keyed glyph the Session menu row draws before its label, in the same
+     * 16px outline style as the board's and the sidebar's own menu icons.
+     * @returns the icon element.
      */
-    function SessionMenuEntry(props) {
-      const ctx = props.ctx;
-      const sessionId = typeof props.sessionId === 'string' ? props.sessionId : '';
-      const displayTitle = typeof props.displayTitle === 'string' ? props.displayTitle : '';
-      const useMenuOpenState = props.useMenuOpenState;
-      // The slot injects this hook, so it is called unconditionally during
-      // render like every other injected seat; a menu without it falls back to
-      // a no-op setter instead of throwing.
-      const menuOpenState = typeof useMenuOpenState === 'function' ? useMenuOpenState() : null;
-      const setMenuOpen = typeof menuOpenState?.[1] === 'function' ? menuOpenState[1] : () => {};
-      const [state, setState] = useState({ busy: false, failed: false });
-      const closeMenu = useCallback(() => {
-        try {
-          setMenuOpen(false);
-        } catch {
-          // A menu that cannot be dismissed still performs the action.
-        }
-      }, [setMenuOpen]);
-
-      if (sessionId.length === 0) return null;
-      if (boardOf(ctx) === undefined) return null;
-
-      const add = async () => {
-        closeMenu();
-        setState({ busy: true, failed: false });
-        const title = displayTitle.trim().length > 0 ? displayTitle : tr('card.untitled');
-        try {
-          await dispatchAction(ctx, 'create-card', {
-            sessionId,
-            title,
-            description: tr('card.description', { id: sessionId }),
-            prompt: tr('card.prompt', { title }),
-          });
-          setState({ busy: false, failed: false });
-          // Show the board so the new card is visibly there.
-          try {
-            service(ctx, 'layout')?.selectPanel?.(BOARD_PANEL);
-          } catch {
-            // Opening the panel is a convenience; the card already exists.
-          }
-        } catch (error) {
-          console.warn('[task-board-session-link] add failed:', error);
-          setState({ busy: false, failed: true });
-        }
-      };
-
-      const label = state.busy ? tr('menu.busy') : state.failed ? tr('menu.failed') : tr('menu.add');
+    function AddIcon() {
       return h(
-        'button',
+        'svg',
         {
-          type: 'button',
-          role: 'menuitem',
-          'data-dsh-session-link': 'menu-entry',
-          disabled: state.busy,
-          onClick: () => void add(),
-          style: {
-            display: 'flex',
-            alignItems: 'center',
-            width: '100%',
-            padding: '6px 10px',
-            border: '0',
-            background: 'transparent',
-            color: state.failed ? 'var(--dsw-alias-state-error-primary)' : 'inherit',
-            font: 'inherit',
-            fontSize: '13px',
-            textAlign: 'left',
-            cursor: state.busy ? 'progress' : 'pointer',
-          },
+          width: 16,
+          height: 16,
+          viewBox: '0 0 16 16',
+          fill: 'none',
+          'aria-hidden': true,
+          style: { display: 'block' },
         },
-        label,
+        h('rect', {
+          x: 2.4,
+          y: 2.9,
+          width: 7.2,
+          height: 9.2,
+          rx: 1.5,
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+        }),
+        h('path', {
+          d: 'M9.2 12.3 13.1 8.4',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+        }),
+        h('path', {
+          d: 'M10.3 8.1h2.9v2.9',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        }),
       );
+    }
+
+    /**
+     * Put one Session on the board as a new card.
+     * @param ctx - client context.
+     * @param target - the captured Session row target.
+     */
+    async function addSessionToBoard(ctx, target) {
+      const sessionId = typeof target?.sessionId === 'string' ? target.sessionId : '';
+      if (sessionId.length === 0) throw new Error('session-link: the Session row carried no id');
+      const rawTitle = typeof target?.displayTitle === 'string' ? target.displayTitle.trim() : '';
+      const title = rawTitle.length > 0 ? rawTitle : tr('card.untitled');
+      await dispatchAction(ctx, 'create-card', {
+        sessionId,
+        title,
+        description: tr('card.description', { id: sessionId }),
+        prompt: tr('card.prompt', { title }),
+      });
+      // Show the board so the new card is visibly there.
+      try {
+        service(ctx, 'layout')?.selectPanel?.(BOARD_PANEL);
+      } catch {
+        // Opening the panel is a convenience; the card already exists.
+      }
+      try {
+        service(ctx, 'contextMenus')?.notify?.(tr('menu.added'), true);
+      } catch {
+        // Confirmation is optional; the card is already on the board.
+      }
     }
 
     /**
@@ -569,11 +603,56 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         const withContext = Component => props => h(Component, { ...props, ctx });
 
+        // Hover, pressed and keyboard-focus states for this plugin's own
+        // controls, written once with the host's theme tokens so they follow
+        // the palette and disappear with the plugin.
+        ctx.effect(() => {
+          if (typeof document === 'undefined') return () => {};
+          const selector = '[data-dsh-session-link]';
+          const style = document.createElement('style');
+          style.dataset.plugin = 'dsh-task-board-session-link';
+          style.dataset.pluginCss = 'dsh-task-board-session-link/controls';
+          style.textContent = [
+            `button${selector}{transition:background-color .12s ease,box-shadow .12s ease,transform .08s ease}`,
+            `button${selector}:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}`,
+            `button${selector}:active:not(:disabled){transform:scale(.985)}`,
+            `button${selector}:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary))}`,
+          ].join('\n');
+          document.head.appendChild(style);
+          return () => style.remove();
+        }, 'task-board-session-link: control styles');
+
+        // The menu row's glyph: a keyed slot the context menu resolves from the
+        // action's `icon.key`, so the row is drawn by the host like every other
+        // entry (icon cell, label, hover and keyboard selection).
         ctx.effect(() =>
-          ctx.slots.inject('sidebar.workspaces.session.menu.item', () =>
-            ctx.slots.register(
-              { name: 'sidebar.workspaces.session.menu.item', id: 'task-board-session-link', order: 400 },
-              withContext(SessionMenuEntry),
+          ctx.slots.inject('contextMenu.icon', () =>
+            ctx.slots.register({ name: 'contextMenu.icon', key: 'task-board-session-link.add' }, AddIcon),
+          ),
+        );
+
+        // The Session row's structured menu contribution. Resolving through the
+        // shared menu gives the row the host's own icon, label, hover, focus and
+        // failure feedback instead of a hand-drawn button.
+        ctx.effect(() =>
+          ctx.inject(['contextMenus'], child =>
+            child.effect(() =>
+              child.contextMenus.register({
+                id: 'task-board-session-link',
+                target: 'session',
+                order: 550,
+                // `run` receives no arguments; the captured target comes from
+                // this resolve call.
+                resolve: target => [
+                  {
+                    id: 'add-to-task-board',
+                    label: tr('menu.add'),
+                    icon: { key: 'task-board-session-link.add' },
+                    failureLabel: tr('menu.failed'),
+                    run: () => addSessionToBoard(ctx, target),
+                  },
+                ],
+              }),
             ),
           ),
         );
