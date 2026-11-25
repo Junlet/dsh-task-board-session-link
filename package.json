@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "dsh-task-board-session-link",
   "version": "0.1.1",
   "description": "Put any Session on the DSH task board: add one card from the Session row menu, then jump back to that Session from the card badge or its detail page.",
