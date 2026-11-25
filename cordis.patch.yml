@@ -1,0 +1,6 @@
+# dsh-task-board-session-link bundle layer.
+# The Host half registers a provider extension on the task board's `taskBoard`
+# service; the Client half draws the Session-row entry and the two card seats.
+- insert:
+    - id: task-board-session-link
+      name: 'dsh-task-board-session-link'

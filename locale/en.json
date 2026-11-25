@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Task board session link",
+    "description": "Puts any Session on the DSH task board. Right-click a Session row (or use its … menu) and choose Add to task board: the plugin creates a card whose title is that Session, stores the Session reference in the card's own integration payload, and then opens the board so the card is visible. The card carries a Session badge that jumps straight back into that conversation, and the card detail page shows the linked Session with Open Session, Link a different Session (picked from your Session list, searchable), and Unlink. Links live on the card only. The plugin registers one provider extension on the installed task board and writes nothing else, so the board keeps its ledger, columns, schedules and run gates; on a deployment without that board it stays dormant and adds nothing to the interface.",
+    "detail": "docs/DETAIL.md"
+  }
+}

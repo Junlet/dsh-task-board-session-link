@@ -1,0 +1,61 @@
+{
+  "name": "dsh-task-board-session-link",
+  "version": "0.1.0",
+  "description": "Put any Session on the DSH task board: add one card from the Session row menu, then jump back to that Session from the card badge or its detail page.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis-plugin",
+    "task-board",
+    "session",
+    "kanban",
+    "看板",
+    "会话"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    },
+    "engines": {
+      "dsh": ">=0.2.2-rc.5"
+    }
+  },
+  "peerDependencies": {
+    "@linxin666/dsh-client-ui-task-board": ">=1"
+  },
+  "peerDependenciesMeta": {
+    "@linxin666/dsh-client-ui-task-board": {
+      "optional": true
+    }
+  }
+}
